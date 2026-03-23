@@ -1,354 +1,392 @@
-import { useEffect, useState, useMemo } from "react";
-import { Search, Save, History, AlertCircle, CheckCircle2, Loader2, FileText, User } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { useEffect, useMemo, useState } from "react";
+import { FileText, Save, Search, Sheet, Sparkles } from "lucide-react";
+import { listSavedReviews, requestTrademarkReview, saveTrademarkReview } from "../lib/api";
 import type { ReviewInput, ReviewResult, SavedReviewRow } from "../lib/types";
-import { requestTrademarkReview, saveTrademarkReview, listSavedReviews } from "../lib/api";
-import { riskLabelMap, riskBadgeClass, buildExpertReportMarkdown } from "../lib/report";
+import { buildExpertReportMarkdown, formatGroundTitle, riskBadgeClass, riskLabelMap } from "../lib/report";
+
+const initialForm: ReviewInput = {
+  markText: "",
+  goodsServices: "",
+  notes: "",
+  reviewer: "대표변리사",
+};
+
+type TabKey = "dashboard" | "report" | "history";
 
 export default function AdminTrademarkReviewPage() {
-  const [input, setInput] = useState<ReviewInput>({
-    markText: "",
-    goodsServices: "",
-    notes: "",
-    reviewer: "",
-  });
-  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState<ReviewInput>(initialForm);
   const [result, setResult] = useState<ReviewResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [expertReport, setExpertReport] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
+  const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [history, setHistory] = useState<SavedReviewRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [view, setView] = useState<"review" | "history">("review");
 
-  const loadHistory = async () => {
-    setHistoryLoading(true);
-    try {
-      const data = await listSavedReviews();
-      setHistory(data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
+  const overallRiskLabel = useMemo(() => {
+    return result ? riskLabelMap[result.summary.overallRisk] : "미분석";
+  }, [result]);
 
-  useEffect(() => {
-    if (view === "history") {
-      loadHistory();
-    }
-  }, [view]);
+  const keyIssueCount = result?.summary.keyIssues.length ?? 0;
+  const highRiskGroundCount = result?.grounds.filter((g) => g.risk === "HIGH").length ?? 0;
 
-  const handleReview = async () => {
-    if (!input.markText || !input.goodsServices) {
-      setError("상표명과 물품/서비스를 입력해주세요.");
+  async function handleReview() {
+    setError("");
+    setSaveMessage("");
+
+    if (!form.markText.trim() || !form.goodsServices.trim()) {
+      setError("상표명과 물품/서비스는 반드시 입력해야 합니다.");
       return;
     }
-    setLoading(true);
-    setError(null);
+
     try {
-      const res = await requestTrademarkReview(input);
-      setResult(res);
+      setLoading(true);
+      const review = await requestTrademarkReview(form);
+      setResult(review);
+      setExpertReport(buildExpertReportMarkdown(review));
+      setActiveTab("dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "검토 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const handleSave = async () => {
-    if (!result) return;
-    setLoading(true);
-    try {
-      const report = buildExpertReportMarkdown(result);
-      await saveTrademarkReview({ input, result, expertReport: report });
-      alert("성공적으로 저장되었습니다.");
-      loadHistory();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "저장 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
+  async function handleSave() {
+    if (!result) {
+      setError("먼저 검토를 실행한 뒤 저장하세요.");
+      return;
     }
-  };
+
+    try {
+      setSaving(true);
+      setError("");
+      const response = await saveTrademarkReview({
+        input: form,
+        result,
+        expertReport,
+      });
+      setSaveMessage(`시트 저장 완료: ${response.id}`);
+      await loadHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "시트 저장 중 오류가 발생했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      setHistoryLoading(true);
+      const rows = await listSavedReviews();
+      setHistory(rows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "이력 조회 중 오류가 발생했습니다.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">상표 검토 관리자</h1>
-            <p className="text-slate-500 mt-1">AI 기반 상표 절대적 부등록사유 심층 검토 시스템</p>
+    <div className="page-shell">
+      <div className="page-wrap">
+        <div className="topbar">
+          <div className="brandbox">
+            <div className="eyebrow">Trademark Review Admin</div>
+            <div className="title">상표 절대적 부등록사유 자동검토 관리자</div>
+            <div className="subtitle">
+              상표명과 물품·서비스를 입력하면 관리자용 대시보드와 전문가 리포트 형식으로 결과를 정리합니다.
+            </div>
           </div>
-          <div className="flex bg-white rounded-xl p-1 shadow-sm border border-slate-200">
-            <button
-              onClick={() => setView("review")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                view === "review" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              신규 검토
-            </button>
-            <button
-              onClick={() => setView("history")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                view === "history" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              검토 이력
-            </button>
+        </div>
+
+        <div className="grid-main">
+          <div className="card card-pad">
+            <h2 className="section-title">검토 입력</h2>
+            <p className="section-desc">
+              관리자 화면에서 직접 입력하고, AI 검토 후 결과를 시트에 저장합니다. 저장된 결과는 나중에 다시 검토 이력으로 확인할 수 있습니다.
+            </p>
+
+            <div className="field">
+              <label className="label">상표명</label>
+              <input
+                className="input"
+                value={form.markText}
+                onChange={(e) => setForm((prev) => ({ ...prev, markText: e.target.value }))}
+                placeholder="예: BIO TOUCH"
+              />
+            </div>
+
+            <div className="field">
+              <label className="label">물품 / 서비스</label>
+              <textarea
+                className="textarea"
+                value={form.goodsServices}
+                onChange={(e) => setForm((prev) => ({ ...prev, goodsServices: e.target.value }))}
+                placeholder="예: 샴푸, 헤어컨디셔너, 두피케어용 화장품"
+              />
+            </div>
+
+            <div className="field">
+              <label className="label">검토 메모</label>
+              <textarea
+                className="textarea"
+                value={form.notes}
+                onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+                placeholder="예: 출원 전 예비검토, 사용의사 있음, 35류 추가 검토 예정"
+              />
+            </div>
+
+            <div className="field">
+              <label className="label">검토자</label>
+              <input
+                className="input"
+                value={form.reviewer || ""}
+                onChange={(e) => setForm((prev) => ({ ...prev, reviewer: e.target.value }))}
+                placeholder="예: 이광진 변리사"
+              />
+            </div>
+
+            <div className="button-row">
+              <button className="btn btn-primary" onClick={handleReview} disabled={loading}>
+                <Sparkles size={16} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                {loading ? "검토 중..." : "AI 검토 실행"}
+              </button>
+              <button className="btn btn-secondary" onClick={handleSave} disabled={saving || !result}>
+                <Save size={16} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                {saving ? "저장 중..." : "Google Sheets 저장"}
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setForm(initialForm);
+                  setResult(null);
+                  setExpertReport("");
+                  setError("");
+                  setSaveMessage("");
+                }}
+              >
+                초기화
+              </button>
+            </div>
+
+            {error ? <div className="error-box">{error}</div> : null}
+            {saveMessage ? (
+              <div style={{ marginTop: 12 }} className="muted">
+                {saveMessage}
+              </div>
+            ) : null}
           </div>
-        </header>
 
-        <main>
-          <AnimatePresence mode="wait">
-            {view === "review" ? (
-              <motion.div
-                key="review"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="grid grid-cols-1 lg:grid-cols-12 gap-8"
-              >
-                {/* Input Section */}
-                <div className="lg:col-span-4 space-y-6">
-                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <Search className="w-5 h-5 text-slate-400" />
-                      검토 정보 입력
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">상표명 (Mark Text)</label>
-                        <input
-                          type="text"
-                          className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none transition-all"
-                          placeholder="예: APPLE, 삼성전자"
-                          value={input.markText}
-                          onChange={(e) => setInput({ ...input, markText: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">지정상품/서비스</label>
-                        <textarea
-                          className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none transition-all min-h-[100px]"
-                          placeholder="예: 스마트폰, 컴퓨터 소프트웨어"
-                          value={input.goodsServices}
-                          onChange={(e) => setInput({ ...input, goodsServices: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">검토자 (Reviewer)</label>
-                        <div className="relative">
-                          <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                          <input
-                            type="text"
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none transition-all"
-                            placeholder="성함 입력"
-                            value={input.reviewer}
-                            onChange={(e) => setInput({ ...input, reviewer: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">추가 메모 (선택)</label>
-                        <textarea
-                          className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none transition-all"
-                          placeholder="특이사항 입력"
-                          value={input.notes}
-                          onChange={(e) => setInput({ ...input, notes: e.target.value })}
-                        />
-                      </div>
-                      <button
-                        onClick={handleReview}
-                        disabled={loading}
-                        className="w-full bg-slate-900 text-white py-3 rounded-xl font-semibold hover:bg-slate-800 disabled:bg-slate-300 transition-all flex items-center justify-center gap-2"
-                      >
-                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
-                        AI 검토 시작
-                      </button>
-                    </div>
-                    {error && (
-                      <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-sm flex items-start gap-2">
-                        <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        {error}
-                      </div>
-                    )}
-                  </div>
-                </div>
+          <div className="card card-pad">
+            <div className="kpi-row">
+              <div className="kpi">
+                <div className="kpi-label">종합 위험도</div>
+                <div className="kpi-value">{overallRiskLabel}</div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">핵심 이슈 수</div>
+                <div className="kpi-value">{keyIssueCount}</div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">고위험 조문 수</div>
+                <div className="kpi-value">{highRiskGroundCount}</div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">검토 이력</div>
+                <div className="kpi-value">{history.length}</div>
+              </div>
+            </div>
 
-                {/* Result Section */}
-                <div className="lg:col-span-8">
-                  {result ? (
-                    <div className="space-y-6">
-                      <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
-                        <div className="flex items-center justify-between mb-6">
-                          <h2 className="text-2xl font-bold text-slate-900">검토 결과 리포트</h2>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={handleSave}
-                              disabled={loading}
-                              className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all flex items-center gap-2 text-sm font-medium"
-                            >
-                              <Save className="w-4 h-4" />
-                              저장하기
-                            </button>
-                          </div>
-                        </div>
+            <div className="tabs">
+              <button className={`tab ${activeTab === "dashboard" ? "active" : ""}`} onClick={() => setActiveTab("dashboard")}>
+                <Search size={16} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                관리자 결과
+              </button>
+              <button className={`tab ${activeTab === "report" ? "active" : ""}`} onClick={() => setActiveTab("report")}>
+                <FileText size={16} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                전문가 리포트
+              </button>
+              <button className={`tab ${activeTab === "history" ? "active" : ""}`} onClick={() => setActiveTab("history")}>
+                <Sheet size={16} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                저장 이력
+              </button>
+            </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">종합 위험도</span>
-                            <div className={`mt-1 inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold border ${riskBadgeClass(result.summary.overallRisk)}`}>
-                              {riskLabelMap[result.summary.overallRisk]}
-                            </div>
-                          </div>
-                          <div className="md:col-span-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">최종 의견</span>
-                            <p className="mt-1 text-slate-700 font-medium">{result.summary.finalOpinion}</p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-8">
-                          <section>
-                            <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                              <FileText className="w-5 h-5 text-slate-400" />
-                              표장 및 상품 분석
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="p-4 rounded-xl border border-slate-100 bg-white">
-                                <h4 className="text-sm font-bold text-slate-500 mb-2">표장 분석</h4>
-                                <ul className="text-sm space-y-2 text-slate-600">
-                                  <li><span className="font-medium">정규화:</span> {result.markAnalysis.normalizedMark}</li>
-                                  <li><span className="font-medium">언어:</span> {result.markAnalysis.detectedLanguage.join(", ")}</li>
-                                  <li><span className="font-medium">구조:</span> {result.markAnalysis.structure}</li>
-                                </ul>
-                              </div>
-                              <div className="p-4 rounded-xl border border-slate-100 bg-white">
-                                <h4 className="text-sm font-bold text-slate-500 mb-2">상품 분석</h4>
-                                <ul className="text-sm space-y-2 text-slate-600">
-                                  <li><span className="font-medium">카테고리:</span> {result.goodsAnalysis.categoryGuess.join(", ")}</li>
-                                  <li><span className="font-medium">성질표시:</span> {result.goodsAnalysis.descriptiveElements.join(", ")}</li>
-                                </ul>
-                              </div>
-                            </div>
-                          </section>
-
-                          <section>
-                            <h3 className="text-lg font-bold text-slate-900 mb-4">조문별 상세 검토</h3>
-                            <div className="space-y-4">
-                              {result.grounds.map((ground, idx) => (
-                                <div key={idx} className="p-5 rounded-2xl border border-slate-100 bg-slate-50/50">
-                                  <div className="flex items-center justify-between mb-3">
-                                    <h4 className="font-bold text-slate-800">{ground.article} {ground.title}</h4>
-                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${riskBadgeClass(ground.risk)}`}>
-                                      {riskLabelMap[ground.risk]}
-                                    </span>
-                                  </div>
-                                  <p className="text-sm text-slate-600 leading-relaxed">{ground.reason}</p>
-                                  <div className="mt-3 pt-3 border-top border-slate-200 text-xs font-semibold text-slate-400">
-                                    결론: <span className="text-slate-700">{ground.conclusion}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </section>
-
-                          <section className="pt-6 border-t border-slate-100">
-                            <h3 className="text-lg font-bold text-slate-900 mb-4">실무 검토 의견 (Draft)</h3>
-                            <div className="space-y-6">
-                              <div>
-                                <h4 className="text-sm font-bold text-slate-400 uppercase mb-2">1. Executive Summary</h4>
-                                <p className="text-slate-700 leading-relaxed">{result.reportBody.executiveSummary}</p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-bold text-slate-400 uppercase mb-2">2. Legal Assessment</h4>
-                                <p className="text-slate-700 leading-relaxed">{result.reportBody.legalAssessment}</p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-bold text-slate-400 uppercase mb-2">3. Practical Comment</h4>
-                                <p className="text-slate-700 leading-relaxed">{result.reportBody.practicalComment}</p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-bold text-slate-400 uppercase mb-2">4. Filing Strategy</h4>
-                                <p className="text-slate-700 leading-relaxed">{result.reportBody.filingStrategy}</p>
-                              </div>
-                            </div>
-                          </section>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="h-full min-h-[400px] flex flex-col items-center justify-center bg-white rounded-2xl border border-dashed border-slate-300 text-slate-400 p-8 text-center">
-                      <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-                        <Search className="w-8 h-8" />
-                      </div>
-                      <h3 className="text-lg font-medium text-slate-900">검토 결과가 여기에 표시됩니다</h3>
-                      <p className="max-w-xs mt-2">상표명과 지정상품을 입력하고 검토 시작 버튼을 눌러주세요.</p>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="history"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
-              >
-                <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    <History className="w-5 h-5 text-slate-400" />
-                    저장된 검토 이력
-                  </h3>
-                  <button
-                    onClick={loadHistory}
-                    disabled={historyLoading}
-                    className="text-sm text-slate-500 hover:text-slate-900 transition-colors flex items-center gap-1"
-                  >
-                    <Loader2 className={`w-4 h-4 ${historyLoading ? "animate-spin" : ""}`} />
-                    새로고침
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  {historyLoading ? (
-                    <div className="p-12 text-center text-slate-400">불러오는 중...</div>
-                  ) : history.length === 0 ? (
-                    <div className="p-12 text-center text-slate-400">아직 저장된 검토 이력이 없습니다.</div>
-                  ) : (
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
-                        <tr>
-                          <th className="px-6 py-4">일시</th>
-                          <th className="px-6 py-4">검토자</th>
-                          <th className="px-6 py-4">상표명</th>
-                          <th className="px-6 py-4">물품/서비스</th>
-                          <th className="px-6 py-4">위험도</th>
-                          <th className="px-6 py-4">최종 의견</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {history.map((row) => (
-                          <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-6 py-4 whitespace-nowrap text-slate-500">{new Date(row.createdAt).toLocaleDateString()}</td>
-                            <td className="px-6 py-4 font-medium text-slate-900">{row.reviewer}</td>
-                            <td className="px-6 py-4 font-bold text-slate-900">{row.markText}</td>
-                            <td className="px-6 py-4 text-slate-600 truncate max-w-[200px]">{row.goodsServices}</td>
-                            <td className="px-6 py-4">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${riskBadgeClass(row.overallRisk)}`}>
-                                {riskLabelMap[row.overallRisk]}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-slate-600">{row.finalOpinion}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </main>
+            {activeTab === "dashboard" && <DashboardView result={result} form={form} />}
+            {activeTab === "report" && <ExpertReportView result={result} expertReport={expertReport} />}
+            {activeTab === "history" && <HistoryView history={history} loading={historyLoading} onReload={loadHistory} />}
+          </div>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function DashboardView({ result, form }: { result: ReviewResult | null; form: ReviewInput }) {
+  if (!result) {
+    return (
+      <div className="report-box">
+        <h3>검토 결과 대시보드</h3>
+        <p className="muted">아직 검토 결과가 없습니다. 좌측 입력창에서 상표명과 물품/서비스를 입력한 뒤 AI 검토를 실행하세요.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="list-col">
+      <div className="report-box">
+        <h3>검토 개요</h3>
+        <p>
+          <strong>상표명:</strong> {form.markText}
+        </p>
+        <p>
+          <strong>물품/서비스:</strong> {form.goodsServices}
+        </p>
+        <p>
+          <strong>종합 의견:</strong> {result.summary.finalOpinion}
+        </p>
+        <p>
+          <strong>권장 조치:</strong> {result.summary.recommendedAction}
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          {result.summary.keyIssues.map((issue, idx) => (
+            <span key={idx} className="badge bg-slate-100 text-slate-700 border-slate-200">
+              {issue}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="report-box">
+        <h3>표장 및 물품 분석</h3>
+        <p>
+          <strong>정규화 표장:</strong> {result.markAnalysis.normalizedMark}
+        </p>
+        <p>
+          <strong>언어:</strong> {result.markAnalysis.detectedLanguage.join(", ")}
+        </p>
+        <p>
+          <strong>구조:</strong> {result.markAnalysis.structure}
+        </p>
+        <p>
+          <strong>의미 메모:</strong> {result.markAnalysis.semanticNotes.join(" / ")}
+        </p>
+        <p>
+          <strong>카테고리 추정:</strong> {result.goodsAnalysis.categoryGuess.join(", ")}
+        </p>
+        <p>
+          <strong>성질요소:</strong> {result.goodsAnalysis.descriptiveElements.join(", ")}
+        </p>
+      </div>
+
+      <div className="list-col">
+        {result.grounds.map((ground, index) => (
+          <div className="ground-card" key={`${ground.article}-${index}`}>
+            <div className="ground-top">
+              <div className="ground-title">{formatGroundTitle(ground.article, ground.title)}</div>
+              <span className={`badge ${riskBadgeClass(ground.risk)}`}>{riskLabelMap[ground.risk]}</span>
+            </div>
+            <p className="ground-text">
+              <strong>결론:</strong> {ground.conclusion}
+            </p>
+            <p className="ground-text">
+              <strong>이유:</strong> {ground.reason}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExpertReportView({ result, expertReport }: { result: ReviewResult | null; expertReport: string }) {
+  if (!result) {
+    return (
+      <div className="report-box">
+        <h3>전문가 리포트</h3>
+        <p className="muted">검토 실행 후 리포트가 생성됩니다.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-box">
+      <h3>전문가 검토 리포트</h3>
+      <p className="muted">대외 회신 전 내부 검토용 문안입니다. 변리사가 검토 후 직접 수정할 수 있습니다.</p>
+
+      <h4>1. Executive Summary</h4>
+      <p>{result.reportBody.executiveSummary}</p>
+
+      <h4>2. Legal Assessment</h4>
+      <p>{result.reportBody.legalAssessment}</p>
+
+      <h4>3. Practical Comment</h4>
+      <p>{result.reportBody.practicalComment}</p>
+
+      <h4>4. Filing Strategy</h4>
+      <p>{result.reportBody.filingStrategy}</p>
+
+      <h4>5. 전체 리포트 원문</h4>
+      <textarea className="textarea" value={expertReport} readOnly style={{ minHeight: 340 }} />
+    </div>
+  );
+}
+
+function HistoryView({
+  history,
+  loading,
+  onReload,
+}: {
+  history: SavedReviewRow[];
+  loading: boolean;
+  onReload: () => void;
+}) {
+  return (
+    <div className="report-box">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <h3 style={{ marginBottom: 0 }}>저장된 검토 이력</h3>
+        <button className="btn btn-secondary" onClick={onReload}>
+          새로고침
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="muted">불러오는 중...</p>
+      ) : history.length === 0 ? (
+        <p className="muted">아직 저장된 검토 이력이 없습니다.</p>
+      ) : (
+        <table className="history-table">
+          <thead>
+            <tr>
+              <th>일시</th>
+              <th>검토자</th>
+              <th>상표명</th>
+              <th>물품/서비스</th>
+              <th>위험도</th>
+              <th>최종 의견</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((row) => (
+              <tr key={row.id}>
+                <td>{row.createdAt}</td>
+                <td>{row.reviewer}</td>
+                <td>{row.markText}</td>
+                <td>{row.goodsServices}</td>
+                <td>{riskLabelMap[row.overallRisk]}</td>
+                <td>{row.finalOpinion}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
