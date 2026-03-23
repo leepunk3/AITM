@@ -256,7 +256,7 @@ function DashboardView({ result, form }: { result: ReviewResult | null; form: Re
           <strong>권장 조치:</strong> {result.summary.recommendedAction}
         </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-          {result.summary.keyIssues.map((issue, idx) => (
+          {(result.summary.keyIssues || []).map((issue, idx) => (
             <span key={idx} className="badge bg-slate-100 text-slate-700 border-slate-200">
               {issue}
             </span>
@@ -270,24 +270,24 @@ function DashboardView({ result, form }: { result: ReviewResult | null; form: Re
           <strong>정규화 표장:</strong> {result.markAnalysis.normalizedMark}
         </p>
         <p>
-          <strong>언어:</strong> {result.markAnalysis.detectedLanguage.join(", ")}
+          <strong>언어:</strong> {(result.markAnalysis.detectedLanguage || []).join(", ")}
         </p>
         <p>
           <strong>구조:</strong> {result.markAnalysis.structure}
         </p>
         <p>
-          <strong>의미 메모:</strong> {result.markAnalysis.semanticNotes.join(" / ")}
+          <strong>의미 메모:</strong> {(result.markAnalysis.detectedLanguage || []).join(", ")}
         </p>
         <p>
-          <strong>카테고리 추정:</strong> {result.goodsAnalysis.categoryGuess.join(", ")}
+          <strong>카테고리 추정:</strong> {(result.goodsAnalysis.categoryGuess || []).join(", ")}
         </p>
         <p>
-          <strong>성질요소:</strong> {result.goodsAnalysis.descriptiveElements.join(", ")}
+          <strong>성질요소:</strong> {(result.goodsAnalysis.descriptiveElements || []).join(", ")}
         </p>
       </div>
 
       <div className="list-col">
-        {result.grounds.map((ground, index) => (
+        {(result.summary.keyIssues || []).map((issue, idx) => (
           <div className="ground-card" key={`${ground.article}-${index}`}>
             <div className="ground-top">
               <div className="ground-title">{formatGroundTitle(ground.article, ground.title)}</div>
