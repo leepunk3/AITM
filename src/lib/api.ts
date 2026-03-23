@@ -1,9 +1,12 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import type { ReviewInput, ReviewResult, SavedReviewRow } from "./types";
 
 // Gemini API call logic moved to frontend as per guidelines
 export async function requestTrademarkReview(input: ReviewInput): Promise<ReviewResult> {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  const response = await fetch("/api/review-trademark", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
   
   const prompt = `
 당신은 대한민국 상표법 전문 변리사입니다. 
