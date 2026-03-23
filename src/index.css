@@ -2,54 +2,38 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-:root {
-  background: #ffffff;
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
 }
 
-.report-box h3,
-.report-box h4 {
-  margin-top: 0;
+/* Custom scrollbar for a cleaner look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.report-box p,
-.report-box li {
-  line-height: 1.75;
-  color: #334155;
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
 }
 
-.history-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
 }
 
-.history-table th,
-.history-table td {
-  padding: 12px 10px;
-  border-bottom: 1px solid #e2e8f0;
-  vertical-align: top;
-  text-align: left;
+/* Markdown styling for the report textarea or any markdown content */
+.markdown-body {
+  @apply text-slate-700 leading-relaxed;
 }
 
-.history-table th {
-  color: #475569;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.muted {
-  color: #64748b;
-}
-
-.error-box {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #b91c1c;
-  font-size: 14px;
-}
+.markdown-body h1 { @apply text-2xl font-bold mb-4 mt-6 text-slate-900; }
+.markdown-body h2 { @apply text-xl font-bold mb-3 mt-5 text-slate-800 border-b border-slate-100 pb-2; }
+.markdown-body h3 { @apply text-lg font-bold mb-2 mt-4 text-slate-800; }
+.markdown-body p { @apply mb-4; }
+.markdown-body ul { @apply list-disc pl-5 mb-4 space-y-1; }
+.markdown-body li { @apply mb-1; }
+.markdown-body strong { @apply font-bold text-slate-900; }
