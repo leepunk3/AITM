@@ -103,7 +103,7 @@ export async function saveTrademarkReview(payload: {
   return response.json();
 }
 
-export async function listSavedReviews(): Promise<SavedReviewRow[]> {
+export async function listSavedReviews() {
   const response = await fetch("/api/list-reviews");
 
   if (!response.ok) {
