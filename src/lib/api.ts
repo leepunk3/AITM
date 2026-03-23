@@ -1,16 +1,18 @@
 import type { ReviewInput, ReviewResult, SavedReviewRow } from "./types";
 
-export async function requestTrademarkReview(input: any) {
-  const res = await fetch("/api/review-trademark", {
+export async function requestTrademarkReview(input: ReviewInput): Promise<ReviewResult> {
+  const response = await fetch("/api/review-trademark", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
 
-  if (!res.ok) {
-    throw new Error(await res.text());
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "검토 요청 중 오류가 발생했습니다.");
   }
 
-  return res.json();
+  return response.json();
 }
 
 export async function saveTrademarkReview(payload: {
