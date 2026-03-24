@@ -16,8 +16,8 @@ export async function requestTrademarkReview(input: ReviewInput): Promise<Review
 }
 
 export async function saveTrademarkReview(payload: {
-  input: ReviewInput;
-  result: ReviewResult;
+  input: any;
+  result: any;
   expertReport: string;
 }) {
   const response = await fetch("/api/save-review", {
@@ -31,6 +31,8 @@ export async function saveTrademarkReview(payload: {
     throw new Error(text || "시트 저장 중 오류가 발생했습니다.");
   }
 
+  return response.json();
+}
   return response.json();
 }
 
