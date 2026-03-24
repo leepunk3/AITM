@@ -1,21 +1,30 @@
 import type { Handler } from "@netlify/functions";
+import { REVIEW_GUIDE } from "../../src/config/reviewGuide";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+/**
+ * 프롬프트 생성
+ */
 function buildPrompt(markText: string, goodsServices: string, notes?: string) {
-  return `너는 한국 상표법상 절대적 부등록사유를 예비 검토하는 상표 심사 보조 엔진이다.
+  return `
+상표명: ${markText}
+물품/서비스: ${goodsServices}
+검토 메모: ${notes || "없음"}
 
-입력값:
-- 상표명: ${markText}
-- 물품/서비스: ${goodsServices}
-- 검토 메모: ${notes || "없음"}
+아래 심사기준에 따라 한국 상표법상 절대적 부등록사유를 예비검토하라.
 
-반드시 아래 JSON 형식으로만 답하라.
-절대로 설명문, 코드블록, 마크다운을 덧붙이지 마라.
+${REVIEW_GUIDE}
 
+[중요]
+- 반드시 JSON만 출력하라
+- 설명문, 마크다운, 코드블록 금지
+- risk 값은 HIGH, MEDIUM, LOW, REVIEW_NEEDED 중 하나만 사용
+
+출력 형식:
 {
   "summary": {
-    "overallRisk": "HIGH",
+    "overallRisk": "HIGH | MEDIUM | LOW | REVIEW_NEEDED",
     "finalOpinion": "string",
     "keyIssues": ["string"],
     "recommendedAction": "string"
@@ -36,7 +45,7 @@ function buildPrompt(markText: string, goodsServices: string, notes?: string) {
     {
       "article": "string",
       "title": "string",
-      "risk": "HIGH",
+      "risk": "HIGH | MEDIUM | LOW | REVIEW_NEEDED",
       "conclusion": "string",
       "reason": "string"
     }
@@ -48,10 +57,12 @@ function buildPrompt(markText: string, goodsServices: string, notes?: string) {
     "filingStrategy": "string"
   }
 }
-
-risk 값은 반드시 HIGH, MEDIUM, LOW, REVIEW_NEEDED 중 하나만 사용하라.`;
+`;
 }
 
+/**
+ * JSON 안전 파싱 (Gemini가 가끔 텍스트 섞어서 줄 때 대응)
+ */
 function extractJson(text: string) {
   try {
     return JSON.parse(text);
@@ -64,25 +75,31 @@ function extractJson(text: string) {
   }
 }
 
+/**
+ * 응답 구조 강제 정규화 (프론트 깨짐 방지 핵심)
+ */
 function normalizeReviewResult(raw: any, markText: string, goodsServices: string) {
   return {
     summary: {
       overallRisk: raw?.summary?.overallRisk || "REVIEW_NEEDED",
-      finalOpinion: raw?.summary?.finalOpinion || "검토 결과를 요약하지 못했습니다.",
+      finalOpinion: raw?.summary?.finalOpinion || "검토 결과 요약 없음",
       keyIssues: Array.isArray(raw?.summary?.keyIssues) ? raw.summary.keyIssues : [],
-      recommendedAction: raw?.summary?.recommendedAction || "변리사 검토 후 출원 전략을 재정리하세요.",
+      recommendedAction:
+        raw?.summary?.recommendedAction || "변리사 검토 후 출원 전략 재정리 권장",
     },
+
     markAnalysis: {
       originalMark: raw?.markAnalysis?.originalMark || markText,
       normalizedMark: raw?.markAnalysis?.normalizedMark || markText,
       detectedLanguage: Array.isArray(raw?.markAnalysis?.detectedLanguage)
         ? raw.markAnalysis.detectedLanguage
         : [],
-      structure: raw?.markAnalysis?.structure || "분석값 없음",
+      structure: raw?.markAnalysis?.structure || "",
       semanticNotes: Array.isArray(raw?.markAnalysis?.semanticNotes)
         ? raw.markAnalysis.semanticNotes
         : [],
     },
+
     goodsAnalysis: {
       inputGoodsServices: raw?.goodsAnalysis?.inputGoodsServices || goodsServices,
       categoryGuess: Array.isArray(raw?.goodsAnalysis?.categoryGuess)
@@ -92,6 +109,7 @@ function normalizeReviewResult(raw: any, markText: string, goodsServices: string
         ? raw.goodsAnalysis.descriptiveElements
         : [],
     },
+
     grounds: Array.isArray(raw?.grounds)
       ? raw.grounds.map((g: any) => ({
           article: g?.article || "검토항목",
@@ -101,29 +119,42 @@ function normalizeReviewResult(raw: any, markText: string, goodsServices: string
           reason: g?.reason || "이유 없음",
         }))
       : [],
+
     reportBody: {
-      executiveSummary: raw?.reportBody?.executiveSummary || "종합 요약 없음",
-      legalAssessment: raw?.reportBody?.legalAssessment || "법률 검토 내용 없음",
-      practicalComment: raw?.reportBody?.practicalComment || "실무 의견 없음",
-      filingStrategy: raw?.reportBody?.filingStrategy || "출원 전략 제안 없음",
+      executiveSummary: raw?.reportBody?.executiveSummary || "",
+      legalAssessment: raw?.reportBody?.legalAssessment || "",
+      practicalComment: raw?.reportBody?.practicalComment || "",
+      filingStrategy: raw?.reportBody?.filingStrategy || "",
     },
   };
 }
 
+/**
+ * Netlify Function Handler
+ */
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
+    return {
+      statusCode: 405,
+      body: "Method Not Allowed",
+    };
   }
 
   if (!GEMINI_API_KEY) {
-    return { statusCode: 500, body: "GEMINI_API_KEY가 설정되지 않았습니다." };
+    return {
+      statusCode: 500,
+      body: "GEMINI_API_KEY가 설정되지 않았습니다.",
+    };
   }
 
   try {
     const { markText, goodsServices, notes } = JSON.parse(event.body || "{}");
 
     if (!markText || !goodsServices) {
-      return { statusCode: 400, body: "상표명과 물품/서비스는 필수입니다." };
+      return {
+        statusCode: 400,
+        body: "상표명과 물품/서비스는 필수 입력값입니다.",
+      };
     }
 
     const prompt = buildPrompt(markText, goodsServices, notes);
@@ -132,7 +163,9 @@ export const handler: Handler = async (event) => {
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
@@ -157,7 +190,7 @@ export const handler: Handler = async (event) => {
     if (!text) {
       return {
         statusCode: 500,
-        body: "AI 검토 결과를 받지 못했습니다.",
+        body: "AI 응답이 비어 있습니다.",
       };
     }
 
@@ -166,7 +199,9 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(normalized),
     };
   } catch (error) {
